@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { serpOutreach } from "./serp-outreach.js";
+import { serpOutreach } from "./serp-OutreachService.js";
 import { extractGoodLeads } from "./utils/filters.js";
 import { appendLeadRows } from "./sheetService.js";
 

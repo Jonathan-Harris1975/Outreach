@@ -1,5 +1,5 @@
 import express from 'express';
-import { serpOutreach } from '../services/serpOutreachService.js';
+import { serpOutreach } from '../services/serp-OutreachService.js';
 import { extractGoodLeads } from '../utils/filters.js';
 import { appendLeadRows } from '../services/sheetService.js';
 import { runBatchFromFile } from '../services/batchService.js';

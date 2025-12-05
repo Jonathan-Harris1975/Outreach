@@ -2,7 +2,7 @@ import express from 'express';
 import { serpOutreach } from '../services/serp-OutreachService.js';
 import { extractGoodLeads } from '../utils/filters.js';
 import { appendLeadRows } from '../services/sheetService.js';
-import { runBatchFromFile } from '../services/batchService.js';
+import { loadKeywordsFromFile } from '../services/batchService.js';
 const router=express.Router();
 router.get('/health',(req,res)=>res.json({status:'ok'}));
 router.post('/keyword',async(req,res)=>{
@@ -20,7 +20,7 @@ router.post('/keyword',async(req,res)=>{
 });
 router.post('/batch',async(req,res)=>{
  try{
-   const out=await runBatchFromFile('keywords.txt');
+   const out=await loadKeywordsFromFile('keywords.txt');
    res.json(out);
  }catch(e){res.status(500).json({error:e.message});}
 });

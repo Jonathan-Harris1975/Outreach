@@ -1,11 +1,6 @@
-import fs from "fs";
-import path from "path";
-
-export function loadKeywordsFromFile(filePath = "keywords.txt") {
-  const full = path.resolve(process.cwd(), filePath);
-  const data = fs.readFileSync(full, "utf8");
-  return data
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
+import fs from 'fs';
+import path from 'path';
+export function loadKeywordsFromFile(fp='keywords.txt'){
+ return fs.readFileSync(path.resolve(process.cwd(),fp),'utf8')
+ .split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
 }

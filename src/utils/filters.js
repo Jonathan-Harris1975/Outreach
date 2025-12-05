@@ -1,31 +1,20 @@
-export function extractGoodLeads(outreachResult, keyword) {
-  const MIN_LEAD_SCORE = 60;
-  const MIN_EMAIL_SCORE = 0.85;
-
-  const finalLeads = [];
-
-  outreachResult.leads.forEach(lead => {
-    if (lead.score < MIN_LEAD_SCORE) return;
-
-    const da = lead?.da?.da || 0;
-
-    lead.emails.forEach(email => {
-      if (!email.valid) return;
-      if (typeof email.score !== "number") return;
-      if (email.score < MIN_EMAIL_SCORE) return;
-
-      finalLeads.push({
-        timestamp: new Date().toISOString(),
-        keyword,
-        domain: lead.domain,
-        da,
-        serpPosition: lead.serpPosition,
-        email: email.email,
-        emailScore: email.score,
-        leadScore: lead.score
-      });
-    });
+export function extractGoodLeads(outreachResult, keyword){
+ const MIN_LEAD_SCORE=60,MIN_EMAIL_SCORE=0.85;
+ const out=[];
+ outreachResult.leads.forEach(l=>{
+  if(l.score<MIN_LEAD_SCORE)return;
+  const da=l?.da?.da||0;
+  l.emails.forEach(e=>{
+   if(!e.valid)return;
+   if(typeof e.score!=='number')return;
+   if(e.score<MIN_EMAIL_SCORE)return;
+   out.push({
+     timestamp:new Date().toISOString(),
+     keyword,domain:l.domain,da,
+     serpPosition:l.serpPosition,
+     email:e.email,emailScore:e.score,leadScore:l.score
+   });
   });
-
-  return finalLeads;
+ });
+ return out;
 }

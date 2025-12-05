@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { serpOutreach } from "./serp-OutreachService.js";
-import { extractGoodLeads } from "./utils/filters.js";
+import { extractGoodLeads } from "../utils/filters.js";
 import { appendLeadRows } from "./sheetService.js";
 
 function loadKeywordsFromFile(filePath = "keywords.txt") {

@@ -1,14 +1,17 @@
 {
   "name": "ai-outreach-engine",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Keyword-driven AI outreach pipeline with SERP scanning, lead scoring, email validation, and Google Sheets API integration.",
   "type": "module",
-  "main": "serp-runner.js",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node serp-runner.js"
+    "start": "node src/server.js",
+    "batch": "node src/serp-runner.js"
   },
   "dependencies": {
     "axios": "^1.6.7",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
     "googleapis": "^131.0.0"
   }
 }

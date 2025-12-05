@@ -1,4 +1,4 @@
-import { serpLookup, outreachScan } from "./outreach-core.js";
+import { serpLookup, outreachScan } from "./outreachCore.js";
 
 const BAD_DOMAINS = ["youtube.com","amazon.com","facebook.com","instagram.com","pinterest.com","reddit.com","quora.com","linkedin.com","x.com","twitter.com"];
 

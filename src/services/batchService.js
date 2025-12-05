@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { serpOutreach } from "./serp-outreach.js";
 import { extractGoodLeads } from "./filters.js";
-import { appendLeadRows } from "./sheet.js";
+import { appendLeadRows } from "./sheetService.js";
 
 function loadKeywordsFromFile(filePath = "keywords.txt") {
   const full = path.resolve(process.cwd(), filePath);

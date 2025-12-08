@@ -1,3 +1,4 @@
+
 import fs from "fs";
 import path from "path";
 import { serpOutreach } from "./serp-OutreachService.js";
@@ -10,15 +11,20 @@ function loadKeywordsFromFile(filePath = "keywords.txt") {
   return data.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 }
 
-export async function runSequentialSerpSearches(keywords = []) {
+export async function runSequentialSerpSearches(keywords) {
+  if (typeof keywords === "string") {
+    keywords = loadKeywordsFromFile(keywords);
+  }
+  if (!Array.isArray(keywords)) {
+    throw new Error("keywords must be array or file path string");
+  }
+
   for (let i = 0; i < keywords.length; i++) {
     const kw = keywords[i];
     console.log(`\n[${i + 1}/${keywords.length}] SERP scan: ${kw}`);
-
     try {
       const result = await serpOutreach(kw);
-      const good = extractGoodLeads(result.data, kw);
-
+      const good = extractGoodLeads(result, kw);
       if (good.length) {
         const rows = good.map(r => [
           r.timestamp,
@@ -28,10 +34,10 @@ export async function runSequentialSerpSearches(keywords = []) {
           r.serpPosition,
           r.email,
           r.emailScore,
-          r.leadScore
+          r.leadScore,
         ]);
-        console.log(`Appending ${rows.length} leads to Google Sheets`);
         await appendLeadRows(rows);
+        console.log(`Saved ${good.length} leads.`);
       } else {
         console.log("No valid leads.");
       }

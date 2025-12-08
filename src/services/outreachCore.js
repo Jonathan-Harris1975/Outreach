@@ -48,13 +48,13 @@ async function safeApiCall(url, params = {}, retries = 5) {
 export async function serpLookup(keyword) {
   return safeApiCall(
     "https://serp-data-scraper.p.rapidapi.com/scrape",
-    { q: keyword, gl: "uk", hl: "en" }
+    { query: keyword }
   );
 }
 
 export async function outreachScan(domain) {
   return safeApiCall(
-    "https://serp-data-scraper.p.rapidapi.com/website-scan",
+    "https://serp-data-scraper.p.rapidapi.com/scan",
     { domain }
   );
 }

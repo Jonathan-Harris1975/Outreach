@@ -1,63 +1,60 @@
+
 import axios from "axios";
 
-const KEY = process.env.RAPID_API_KEY;
+const API_HOST = "serp-data-scraper.p.rapidapi.com";
+const API_KEY = process.env.RAPIDAPI_KEY;
 
-export async function getDomainAuthority(domain) {
-  const url = `https://domain-da-pa-check2.p.rapidapi.com/check?domain=${domain}`;
-  return (await axios.get(url, {
-    headers: {
-      "x-rapidapi-key": KEY,
-      "x-rapidapi-host": "domain-da-pa-check2.p.rapidapi.com"
+const wait = (ms) => new Promise(res => setTimeout(res, ms));
+
+async function safeApiCall(url, params = {}, retries = 5) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await axios.get(url, {
+        params,
+        headers: {
+          "X-RapidAPI-Key": API_KEY,
+          "X-RapidAPI-Host": API_HOST
+        },
+        timeout: 20000
+      });
+      return res.data;
+    } catch (err) {
+      const status = err.response?.status;
+
+      if (status === 401) {
+        console.log("⚠️ 401 Unauthorized – API key or quota issue");
+        await wait(3000);
+      }
+
+      if (status === 429) {
+        const delay = attempt * 2500;
+        console.log(`⏳ 429 rate limit — retrying in ${delay}ms`);
+        await wait(delay);
+        continue;
+      }
+
+      if (attempt < retries) {
+        const delay = attempt * 1500;
+        console.log(`⚠️ API error (${status}) — retry in ${delay}ms`);
+        await wait(delay);
+        continue;
+      }
+
+      throw err;
     }
-  })).data;
+  }
 }
 
-export async function serpLookup(query) {
-  const url = `https://serp-data-scraper.p.rapidapi.com/serp`;
-  return (await axios.post(url, {}, {
-    headers: {
-      "x-rapidapi-key": KEY,
-      "x-rapidapi-host": "serp-data-scraper.p.rapidapi.com"
-    },
-    params: { keyword: query }
-  })).data;
-}
-
-export async function findEmails(domain) {
-  const url = `https://email-finder7.p.rapidapi.com/email-address/find-many-domain?domain=${domain}`;
-  return (await axios.get(url, {
-    headers: {
-      "x-rapidapi-key": KEY,
-      "x-rapidapi-host": "email-finder7.p.rapidapi.com"
-    }
-  })).data;
-}
-
-export async function validateEmail(email) {
-  const url = `https://easy-email-validation.p.rapidapi.com/validate-v2?email=${email}`;
-  return (await axios.get(url, {
-    headers: {
-      "x-rapidapi-key": KEY,
-      "x-rapidapi-host": "easy-email-validation.p.rapidapi.com"
-    }
-  })).data;
+export async function serpLookup(keyword) {
+  return safeApiCall(
+    "https://serp-data-scraper.p.rapidapi.com/scrape",
+    { q: keyword, gl: "uk", hl: "en" }
+  );
 }
 
 export async function outreachScan(domain) {
-  const da = await getDomainAuthority(domain);
-  const found = await findEmails(domain);
-  const emails = found?.emails || [];
-
-  const validated = [];
-  for (const email of emails) {
-    const v = await validateEmail(email);
-    validated.push({
-      email,
-      valid: v?.status === "valid",
-      score: v?.score,
-      raw: v
-    });
-  }
-
-  return { domain, da, emails: validated };
+  return safeApiCall(
+    "https://serp-data-scraper.p.rapidapi.com/website-scan",
+    { domain }
+  );
 }

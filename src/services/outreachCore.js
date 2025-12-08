@@ -13,22 +13,22 @@ export async function getDomainAuthority(domain) {
 }
 
 export async function serpLookup(query) {
-  const url = `https://serpapi.p.rapidapi.com/search`;
-  return (await axios.get(url, {
+  const url = `https://serp-data-scraper.p.rapidapi.com/serp`;
+  return (await axios.post(url, {}, {
     headers: {
       "x-rapidapi-key": KEY,
-      "x-rapidapi-host": "serpapi.p.rapidapi.com"
+      "x-rapidapi-host": "serp-data-scraper.p.rapidapi.com"
     },
-    params: { engine: "google", q: query, hl: "en", gl: "gb" }
+    params: { keyword: query }
   })).data;
 }
 
 export async function findEmails(domain) {
-  const url = `https://email-address-finder1.p.rapidapi.com/emailjob?website=${domain}`;
+  const url = `https://email-finder7.p.rapidapi.com/email-address/find-many-domain?domain=${domain}`;
   return (await axios.get(url, {
     headers: {
       "x-rapidapi-key": KEY,
-      "x-rapidapi-host": "email-address-finder1.p.rapidapi.com"
+      "x-rapidapi-host": "email-finder7.p.rapidapi.com"
     }
   })).data;
 }

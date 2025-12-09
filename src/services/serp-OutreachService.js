@@ -21,7 +21,6 @@ function findResultArray(serp) {
   if (!serp) return [];
 
   if (Array.isArray(serp)) return serp;
-
   if (Array.isArray(serp.organic_results)) return serp.organic_results;
   if (Array.isArray(serp.results)) return serp.results;
 
@@ -123,14 +122,21 @@ export async function serpOutreach(keyword) {
   if (serp && typeof serp === "object") {
     try {
       console.log("SERP top-level keys:", Object.keys(serp));
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   } else if (Array.isArray(serp)) {
     console.log("SERP is an array with length:", serp.length);
   }
 
-  const domainEntries = extractDomainPositions(serp);
+  let domainEntries = extractDomainPositions(serp);
 
-  console.log(`Found ${domainEntries.length} unique domains for keyword: ${keyword}`);
+  // limit to 10 domains per keyword
+  domainEntries = domainEntries.slice(0, 10);
+
+  console.log(
+    `Found ${domainEntries.length} unique domains (max 10) for keyword: ${keyword}`
+  );
 
   const leads = [];
 
@@ -149,7 +155,11 @@ export async function serpOutreach(keyword) {
 
     const bestEmailScore =
       emails.length > 0
-        ? Math.max(...emails.map((e) => (typeof e.score === "number" ? e.score : 0)))
+        ? Math.max(
+            ...emails.map((e) =>
+              typeof e.score === "number" ? e.score : 0
+            )
+          )
         : 0;
 
     const score = computeLeadScore({

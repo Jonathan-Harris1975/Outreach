@@ -13,16 +13,14 @@ const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * - 401 recovery
  * - 429 rate-limit handling
  */
-async function safeApiCall(url, options = {}, retries = 5) {
+async function safeApiCall(url, params = {}, retries = 5) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const res = await axios.request({
-        ...options,
-        url,
+      const res = await axios.get(url, {
+        params,
         headers: {
           'x-rapidapi-key': API_KEY,
-          'x-rapidapi-host': API_HOST,
-          ...options.headers
+          'x-rapidapi-host': API_HOST
         },
         timeout: 20000
       });
@@ -37,6 +35,7 @@ async function safeApiCall(url, options = {}, retries = 5) {
         status,
         statusText: err.response?.statusText,
         url: err.config?.url,
+        params: err.config?.params,
         data: err.response?.data
       });
 
@@ -78,34 +77,23 @@ async function safeApiCall(url, options = {}, retries = 5) {
 /**
  * SERP lookup - Google Search Results using Google Search116 API
  * 
- * Based on the API documentation:
- * - Endpoint: POST /api/Search
- * - Required body parameters:
- *   - query: search query string
- *   - limit: number of results (default: 10)
+ * Based on the curl example:
+ * - Endpoint: GET /?query=KEYWORD
+ * - Parameters: query (required)
  */
-export async function serpLookup(keyword, limit = 10) {
+export async function serpLookup(keyword) {
   const baseUrl = `https://${API_HOST}`;
   
   try {
     console.log(`🔍 Searching for: "${keyword}"`);
     
     const result = await safeApiCall(
-      `${baseUrl}/api/Search`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        data: {
-          query: keyword,
-          limit: limit
-        }
-      },
+      baseUrl,
+      { query: keyword },
       3
     );
     
-    console.log(`✅ Found ${result?.organic?.length || 0} results for "${keyword}"`);
+    console.log(`✅ Search complete for "${keyword}"`);
     return result;
     
   } catch (err) {
@@ -117,11 +105,7 @@ export async function serpLookup(keyword, limit = 10) {
 /**
  * Domain scan/outreach lookup
  * 
- * Note: The Google Search116 API is primarily for search results.
- * For domain-specific information, we can search for the domain
- * and extract relevant data from the results.
- * 
- * Alternative: Search for "site:domain.com" to get domain-specific results
+ * Uses the search API with site: operator to get domain-specific results
  */
 export async function outreachScan(domain) {
   try {
@@ -129,20 +113,17 @@ export async function outreachScan(domain) {
     
     // Search for the domain using site: operator
     const searchQuery = `site:${domain}`;
-    const result = await serpLookup(searchQuery, 20);
+    const result = await serpLookup(searchQuery);
     
     // Extract domain information from results
     const domainInfo = {
       domain: domain,
-      searchResults: result?.organic || [],
-      totalResults: result?.searchInformation?.totalResults || 0,
-      metadata: {
-        searchTime: result?.searchInformation?.searchTime,
-        formattedTotalResults: result?.searchInformation?.formattedTotalResults
-      }
+      searchResults: result?.organic_results || result?.results || [],
+      totalResults: result?.search_information?.total_results || 0,
+      metadata: result?.search_information || {}
     };
     
-    console.log(`✅ Domain scan complete for ${domain}: ${domainInfo.totalResults} results`);
+    console.log(`✅ Domain scan complete for ${domain}`);
     return domainInfo;
     
   } catch (err) {
@@ -152,17 +133,12 @@ export async function outreachScan(domain) {
 }
 
 /**
- * Advanced search with additional parameters
+ * Advanced search with site restriction
  * 
  * @param {string} keyword - Search query
- * @param {Object} options - Additional search options
- * @param {number} options.limit - Number of results (default: 10)
- * @param {string} options.dateRestrict - Date restriction (e.g., 'd1' for past day, 'w1' for past week)
- * @param {string} options.siteSearch - Restrict results to a specific site
+ * @param {string} siteSearch - Restrict results to a specific site (optional)
  */
-export async function advancedSearch(keyword, options = {}) {
-  const { limit = 10, dateRestrict, siteSearch } = options;
-  
+export async function advancedSearch(keyword, siteSearch = null) {
   try {
     let query = keyword;
     
@@ -174,22 +150,12 @@ export async function advancedSearch(keyword, options = {}) {
     console.log(`🔍 Advanced search: "${query}"`);
     
     const result = await safeApiCall(
-      `https://${API_HOST}/api/Search`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        data: {
-          query: query,
-          limit: limit,
-          ...(dateRestrict && { dateRestrict })
-        }
-      },
+      `https://${API_HOST}`,
+      { query: query },
       3
     );
     
-    console.log(`✅ Advanced search complete: ${result?.organic?.length || 0} results`);
+    console.log(`✅ Advanced search complete`);
     return result;
     
   } catch (err) {
@@ -247,13 +213,12 @@ export async function testApiConnection() {
   
   // Try a simple test call
   try {
-    const result = await serpLookup("test", 5);
+    const result = await serpLookup("test");
     console.log("✅ API connection successful");
-    console.log("Sample result structure:", {
-      hasOrganic: !!result?.organic,
-      organicCount: result?.organic?.length || 0,
-      hasSearchInfo: !!result?.searchInformation
-    });
+    console.log("Response structure:", Object.keys(result));
+    if (result.organic_results) {
+      console.log(`Found ${result.organic_results.length} organic results`);
+    }
     return result;
   } catch (err) {
     console.error("❌ API connection failed:", err.message);
@@ -266,16 +231,19 @@ export async function testApiConnection() {
 
 // Export utility function to parse search results
 export function parseSearchResults(apiResponse) {
-  if (!apiResponse || !apiResponse.organic) {
+  // Handle different possible result structures
+  const results = apiResponse?.organic_results || apiResponse?.results || [];
+  
+  if (!Array.isArray(results)) {
     return [];
   }
   
-  return apiResponse.organic.map(result => ({
+  return results.map((result, index) => ({
     title: result.title,
-    link: result.link,
-    snippet: result.snippet,
-    displayLink: result.displayLink,
-    position: result.position
+    link: result.link || result.url,
+    snippet: result.snippet || result.description,
+    displayLink: result.displayed_link || result.display_link,
+    position: result.position || index + 1
   }));
 }
 
@@ -287,4 +255,3 @@ export default {
   testApiConnection,
   parseSearchResults
 };
-    

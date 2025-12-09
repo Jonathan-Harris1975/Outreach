@@ -1,3 +1,4 @@
+// src/services/batchService.js
 
 import fs from "fs";
 import path from "path";
@@ -6,31 +7,47 @@ import { extractGoodLeads } from "../utils/filters.js";
 import { appendLeadRows } from "./sheetService.js";
 
 const wait = ms => new Promise(res => setTimeout(res, ms));
-const RATE_DELAY = 2500;
+const RATE_DELAY = 1500;
 
-function loadKeywordsFromFile(filePath = "keywords.txt") {
-  const full = path.resolve(process.cwd(), filePath);
-  const data = fs.readFileSync(full, "utf8");
-  return data.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+function loadKeywordsFromFile(file = "keywords.txt") {
+  const p = path.resolve(process.cwd(), file);
+  return fs.readFileSync(p, "utf8")
+           .split(/\r?\n/)
+           .map(x => x.trim())
+           .filter(Boolean);
 }
 
-export async function runSequentialSerpSearches(input) {
-  let keywords = input;
-  if (typeof input === "string") keywords = loadKeywordsFromFile(input);
-  if (!Array.isArray(keywords)) throw new Error("Invalid keyword input");
+// persistent batch index
+const INDEX_FILE = path.resolve(process.cwd(), "batch.index.json");
 
-  const maxRun = 50;
-  const slice = keywords.slice(0, maxRun);
+function loadIndex() {
+  try { return JSON.parse(fs.readFileSync(INDEX_FILE)); }
+  catch { return { index: 0 }; }
+}
 
-  console.log(`Running rationed block of ${slice.length} keywords`);
+function saveIndex(i) {
+  fs.writeFileSync(INDEX_FILE, JSON.stringify({ index: i }, null, 2));
+}
+
+export async function runSequentialSerpSearches(file = "keywords.txt") {
+  const keywords = loadKeywordsFromFile(file);
+  const { index } = loadIndex();
+
+  const start = index;
+  const end = Math.min(start + 50, keywords.length);
+
+  const slice = keywords.slice(start, end);
+
+  console.log(`📦 Processing batch ${start} → ${end} (${slice.length} items)`);
 
   for (let i = 0; i < slice.length; i++) {
     const kw = slice[i];
-    console.log(`\n[${i + 1}/${slice.length}] SERP scan: ${kw}`);
+    console.log(`🔎 [${start + i + 1}] SERP scan: ${kw}`);
 
     try {
       const result = await serpOutreach(kw);
       const good = extractGoodLeads(result, kw);
+
       if (good.length) {
         const rows = good.map(r => [
           r.timestamp,
@@ -40,22 +57,21 @@ export async function runSequentialSerpSearches(input) {
           r.serpPosition,
           r.email,
           r.emailScore,
-          r.leadScore,
+          r.leadScore
         ]);
         await appendLeadRows(rows);
-        console.log(`Saved ${good.length} leads`);
+        console.log(`✔ Saved ${good.length} leads`);
       }
-    } catch (err) {
-      console.log("Error:", err.message);
+    } catch (e) {
+      console.log("❌ Error:", e.message);
     }
 
     await wait(RATE_DELAY);
   }
-}
 
-if (process.argv[1].includes("serp-runner.js")) {
-  const keywords = loadKeywordsFromFile("keywords.txt");
-  runSequentialSerpSearches(keywords).then(() =>
-    console.log("Rationed block complete.")
-  );
-}
+  // rotate index
+  const newIndex = end >= keywords.length ? 0 : end;
+  saveIndex(newIndex);
+
+  console.log(`⏭ Next batch will start from index: ${newIndex}`);
+    }

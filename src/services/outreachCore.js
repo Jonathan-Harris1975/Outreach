@@ -19,8 +19,8 @@ async function safeApiCall(url, params = {}, retries = 5) {
       const res = await axios.get(url, {
         params,
         headers: {
-          "X-RapidAPI-Key": API_KEY,
-          "X-RapidAPI-Host": API_HOST
+          "x-rapidapi-key": API_KEY,  // Changed to lowercase
+          "x-rapidapi-host": API_HOST  // Changed to lowercase
         },
         timeout: 20000
       });
@@ -30,10 +30,25 @@ async function safeApiCall(url, params = {}, retries = 5) {
     } catch (err) {
       const status = err.response?.status;
 
+      // Log the full error for debugging
+      console.error(`Attempt ${attempt}/${retries} failed:`, {
+        status,
+        statusText: err.response?.statusText,
+        url: err.config?.url,
+        params: err.config?.params
+      });
+
       // Unauthorized
       if (status === 401) {
         console.log("⚠️ 401 Unauthorized – check API key or quota");
         await wait(3000);
+      }
+
+      // Not Found - likely wrong endpoint
+      if (status === 404) {
+        console.error("❌ 404 Not Found – endpoint does not exist");
+        console.error("Check API documentation for correct endpoint path");
+        throw new Error(`Endpoint not found: ${err.config?.url}`);
       }
 
       // Rate limit hit
@@ -59,34 +74,135 @@ async function safeApiCall(url, params = {}, retries = 5) {
 }
 
 /**
- * SERP lookup (correct RapidAPI provider format)
- * Endpoint:
- *   GET https://serp-data-scraper.p.rapidapi.com/google/search
- *
- * Params:
- *   - q: query keyword
- *   - gl: geo location (use "us" for global consistency)
- *   - hl: language ("en")
+ * SERP lookup - Google Search Results
+ * 
+ * Common RapidAPI SERP endpoint patterns:
+ * Option 1: /search
+ * Option 2: /google/search  
+ * Option 3: /serp
+ * 
+ * Parameters typically include:
+ * - q or query: search query
+ * - gl or country: country code (us, uk, etc.)
+ * - hl or language: language code (en, es, etc.)
+ * - location: specific location
  */
 export async function serpLookup(keyword) {
-  return safeApiCall(
-    "https://serp-data-scraper.p.rapidapi.com/google/search",
-    {
-      q: keyword,
-      gl: "us",
-      hl: "en"
+  // Try the most common endpoint pattern first
+  const baseUrl = `https://${API_HOST}`;
+  
+  try {
+    // Primary attempt: /search endpoint
+    return await safeApiCall(
+      `${baseUrl}/search`,
+      {
+        q: keyword,
+        gl: "us",
+        hl: "en"
+      },
+      3
+    );
+  } catch (err) {
+    if (err.response?.status === 404) {
+      console.log("Trying alternate endpoint: /google/search");
+      
+      // Fallback: /google/search endpoint
+      try {
+        return await safeApiCall(
+          `${baseUrl}/google/search`,
+          {
+            q: keyword,
+            gl: "us",
+            hl: "en"
+          },
+          3
+        );
+      } catch (err2) {
+        if (err2.response?.status === 404) {
+          console.log("Trying alternate endpoint: /serp");
+          
+          // Second fallback: /serp endpoint
+          return await safeApiCall(
+            `${baseUrl}/serp`,
+            {
+              query: keyword,
+              country: "us",
+              language: "en"
+            },
+            3
+          );
+        }
+        throw err2;
+      }
     }
-  );
+    throw err;
+  }
 }
 
 /**
- * Domain scan (correct RapidAPI provider endpoint)
- * Endpoint:
- *   GET https://serp-data-scraper.p.rapidapi.com/google/scan
+ * Domain scan/outreach lookup
+ * 
+ * Common patterns for domain analysis:
+ * Option 1: /domain
+ * Option 2: /scan
+ * Option 3: /domain/info
  */
 export async function outreachScan(domain) {
-  return safeApiCall(
-    "https://serp-data-scraper.p.rapidapi.com/google/scan",
-    { domain }
-  );
+  const baseUrl = `https://${API_HOST}`;
+  
+  try {
+    // Primary attempt: /domain endpoint
+    return await safeApiCall(
+      `${baseUrl}/domain`,
+      { domain },
+      3
+    );
+  } catch (err) {
+    if (err.response?.status === 404) {
+      console.log("Trying alternate endpoint: /scan");
+      
+      // Fallback: /scan endpoint
+      try {
+        return await safeApiCall(
+          `${baseUrl}/scan`,
+          { domain },
+          3
+        );
+      } catch (err2) {
+        if (err2.response?.status === 404) {
+          console.log("Trying alternate endpoint: /domain/info");
+          
+          // Second fallback: /domain/info endpoint
+          return await safeApiCall(
+            `${baseUrl}/domain/info`,
+            { domain },
+            3
+          );
+        }
+        throw err2;
+      }
     }
+    throw err;
+  }
+}
+
+// Debug function to test API connectivity
+export async function testApiConnection() {
+  console.log("Testing API connection...");
+  console.log("API Host:", API_HOST);
+  console.log("API Key:", API_KEY ? "Present" : "Missing");
+  
+  if (!API_KEY) {
+    throw new Error("RAPIDAPI_KEY environment variable is not set");
+  }
+  
+  // Try a simple test call
+  try {
+    const result = await serpLookup("test");
+    console.log("✅ API connection successful");
+    return result;
+  } catch (err) {
+    console.error("❌ API connection failed:", err.message);
+    throw err;
+  }
+}

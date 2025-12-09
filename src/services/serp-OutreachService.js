@@ -17,16 +17,46 @@ const BAD_DOMAINS = [
 
 // ------------------------ DOMAIN EXTRACTION ------------------------
 
+function findResultArray(serp) {
+  if (!serp) return [];
+
+  if (Array.isArray(serp)) return serp;
+
+  if (Array.isArray(serp.organic_results)) return serp.organic_results;
+  if (Array.isArray(serp.results)) return serp.results;
+
+  for (const val of Object.values(serp)) {
+    if (Array.isArray(val)) return val;
+  }
+
+  return [];
+}
+
 export function extractDomainPositions(serp) {
-  const organic = serp?.organic_results || serp?.results || [];
+  const candidates = findResultArray(serp);
   const map = new Map();
 
-  organic.forEach((item, idx) => {
-    if (!item?.link) return;
+  candidates.forEach((item, idx) => {
+    if (!item || typeof item !== "object") return;
+
+    const urls = [];
+
+    const scan = (val) => {
+      if (typeof val === "string" && /^https?:\/\//i.test(val)) {
+        urls.push(val);
+      } else if (val && typeof val === "object" && !Array.isArray(val)) {
+        Object.values(val).forEach(scan);
+      }
+    };
+
+    scan(item);
+
+    const urlStr = urls[0];
+    if (!urlStr) return;
 
     try {
-      const url = new URL(item.link);
-      const host = url.hostname.replace(/^www\./, "");
+      const u = new URL(urlStr);
+      const host = u.hostname.replace(/^www\./, "");
       if (BAD_DOMAINS.includes(host)) return;
 
       const pos = idx + 1;
@@ -39,9 +69,9 @@ export function extractDomainPositions(serp) {
     }
   });
 
-  return Array.from(map.entries()).map(([domain, position]) => ({
+  return Array.from(map.entries()).map(([domain, serpPosition]) => ({
     domain,
-    serpPosition: position,
+    serpPosition,
   }));
 }
 
@@ -89,7 +119,18 @@ export async function serpOutreach(keyword) {
   console.log(`🔍 SERP for keyword: ${keyword}`);
 
   const serp = await serpLookup(keyword);
+
+  if (serp && typeof serp === "object") {
+    try {
+      console.log("SERP top-level keys:", Object.keys(serp));
+    } catch {}
+  } else if (Array.isArray(serp)) {
+    console.log("SERP is an array with length:", serp.length);
+  }
+
   const domainEntries = extractDomainPositions(serp);
+
+  console.log(`Found ${domainEntries.length} unique domains for keyword: ${keyword}`);
 
   const leads = [];
 

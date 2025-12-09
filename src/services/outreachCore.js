@@ -1,257 +1,254 @@
+// routes/services/outreachCore.js (or src/services/outreachCore.js)
 import axios from "axios";
 
-const API_HOST = "google-search116.p.rapidapi.com";
-const API_KEY = process.env.RAPIDAPI_KEY;
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+
+// Known RapidAPI hosts used in this project
+const HOSTS = {
+  serp: "google-search116.p.rapidapi.com",
+  daPa: "domain-da-pa-check2.p.rapidapi.com",
+  emailFinder: "email-address-finder1.p.rapidapi.com",
+  emailValidator: "easy-email-validation.p.rapidapi.com",
+};
 
 // Small helper for delays
-const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Unified, fault-tolerant API caller with:
+ * Generic RapidAPI GET helper with:
+ * - host-specific headers
  * - retry logic
- * - backoff handling
- * - 401 recovery
- * - 429 rate-limit handling
+ * - 401 / 429 handling
  */
-async function safeApiCall(url, params = {}, retries = 5) {
+async function rapidGet({ host, path, params = {}, retries = 5 }) {
+  if (!RAPIDAPI_KEY) {
+    throw new Error("RAPIDAPI_KEY environment variable is not set");
+  }
+
+  const url = `https://${host}${path}`;
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const res = await axios.get(url, {
         params,
         headers: {
-          'x-rapidapi-key': API_KEY,
-          'x-rapidapi-host': API_HOST
+          "x-rapidapi-key": RAPIDAPI_KEY,
+          "x-rapidapi-host": host,
         },
-        timeout: 20000
+        timeout: 20000,
       });
 
       return res.data;
-
     } catch (err) {
       const status = err.response?.status;
 
-      // Log the full error for debugging
       console.error(`Attempt ${attempt}/${retries} failed:`, {
+        host,
+        url,
         status,
         statusText: err.response?.statusText,
-        url: err.config?.url,
-        params: err.config?.params,
-        data: err.response?.data
+        params,
       });
 
-      // Unauthorized
       if (status === 401) {
-        console.log("⚠️ 401 Unauthorized – check API key or quota");
+        console.log("⚠️  401 Unauthorized – check RapidAPI key / quota");
         await wait(3000);
-      }
-
-      // Not Found - likely wrong endpoint
-      if (status === 404) {
-        console.error("❌ 404 Not Found – endpoint does not exist");
-        console.error("Check API documentation for correct endpoint path");
-        throw new Error(`Endpoint not found: ${err.config?.url}`);
-      }
-
-      // Rate limit hit
-      if (status === 429) {
+      } else if (status === 429) {
         const delay = attempt * 2500;
-        console.log(`⏳ 429 Rate limit – Retrying in ${delay}ms`);
+        console.log(`⏳ 429 Rate limit from ${host} – retrying in ${delay}ms`);
         await wait(delay);
         continue;
-      }
-
-      // Other errors: retry with backoff
-      if (attempt < retries) {
+      } else if (status === 404) {
+        console.error("❌ 404 Not Found – check endpoint path for host:", host);
+        throw new Error(`Endpoint not found: ${url}`);
+      } else if (attempt < retries) {
         const delay = attempt * 1500;
-        console.log(`⚠️ API error (${status}) – retrying in ${delay}ms`);
+        console.log(`⚠️ API error (${status}) from ${host} – retrying in ${delay}ms`);
         await wait(delay);
         continue;
       }
 
-      // Final failure → throw
+      // Final failure
       throw err;
     }
   }
 }
 
+/* -----------------------------------------------------------
+ * 1) SERP LOOKUP (google-search116)
+ * --------------------------------------------------------- */
+
 /**
  * SERP lookup - Google Search Results using Google Search116 API
  * 
- * Based on the curl example:
- * - Endpoint: GET /?query=KEYWORD
- * - Parameters: query (required)
+ * According to the current setup, this API expects:
+ *   GET https://google-search116.p.rapidapi.com/?query=KEYWORD
  */
 export async function serpLookup(keyword) {
-  const baseUrl = `https://${API_HOST}`;
-  
-  try {
-    console.log(`🔍 Searching for: "${keyword}"`);
-    
-    const result = await safeApiCall(
-      baseUrl,
-      { query: keyword },
-      3
-    );
-    
-    console.log(`✅ Search complete for "${keyword}"`);
-    return result;
-    
-  } catch (err) {
-    console.error(`❌ SERP lookup failed for "${keyword}":`, err.message);
-    throw err;
-  }
+  console.log(`🔍 SERP search for: "${keyword}"`);
+
+  const result = await rapidGet({
+    host: HOSTS.serp,
+    path: "/",
+    params: { query: keyword },
+    retries: 3,
+  });
+
+  console.log(`✅ SERP search complete for: "${keyword}"`);
+  return result;
 }
 
 /**
- * Domain scan/outreach lookup
- * 
- * Uses the search API with site: operator to get domain-specific results
+ * Domain scan / outreach lookup based on SERP (site:domain)
+ * NOTE:
+ *   This currently only uses SERP – it does NOT yet include DA or emails.
+ *   DA / email enrichment is added via separate helpers below.
  */
 export async function outreachScan(domain) {
-  try {
-    console.log(`🌐 Scanning domain: ${domain}`);
-    
-    // Search for the domain using site: operator
-    const searchQuery = `site:${domain}`;
-    const result = await serpLookup(searchQuery);
-    
-    // Extract domain information from results
-    const domainInfo = {
-      domain: domain,
-      searchResults: result?.organic_results || result?.results || [],
-      totalResults: result?.search_information?.total_results || 0,
-      metadata: result?.search_information || {}
-    };
-    
-    console.log(`✅ Domain scan complete for ${domain}`);
-    return domainInfo;
-    
-  } catch (err) {
-    console.error(`❌ Domain scan failed for ${domain}:`, err.message);
-    throw err;
-  }
+  console.log(`🌐 SERP-based scan for domain: ${domain}`);
+
+  const searchQuery = `site:${domain}`;
+  const result = await serpLookup(searchQuery);
+
+  const domainInfo = {
+    domain,
+    searchResults: result?.organic_results || result?.results || [],
+    totalResults: result?.search_information?.total_results || 0,
+    metadata: result?.search_information || {},
+  };
+
+  console.log(`✅ SERP domain scan complete for: ${domain}`);
+  return domainInfo;
 }
+
+/* -----------------------------------------------------------
+ * 2) DOMAIN DA / PA / SPAM SCORE
+ *    API: https://domain-da-pa-check2.p.rapidapi.com/check?domain=
+ * --------------------------------------------------------- */
 
 /**
- * Advanced search with site restriction
- * 
- * @param {string} keyword - Search query
- * @param {string} siteSearch - Restrict results to a specific site (optional)
+ * Fetch Moz-style DA/PA and related metrics for a domain.
+ *
+ * This uses the endpoint you provided:
+ *   GET https://domain-da-pa-check2.p.rapidapi.com/check?domain=example.com
+ *
+ * NOTE:
+ *   This function returns the raw JSON from the API.
+ *   You should log the response once and then map the actual DA field
+ *   into whatever structure `serp-OutreachService` / `filters.js` expect.
  */
-export async function advancedSearch(keyword, siteSearch = null) {
-  try {
-    let query = keyword;
-    
-    // Add site restriction if specified
-    if (siteSearch) {
-      query = `site:${siteSearch} ${query}`;
-    }
-    
-    console.log(`🔍 Advanced search: "${query}"`);
-    
-    const result = await safeApiCall(
-      `https://${API_HOST}`,
-      { query: query },
-      3
-    );
-    
-    console.log(`✅ Advanced search complete`);
-    return result;
-    
-  } catch (err) {
-    console.error(`❌ Advanced search failed:`, err.message);
-    throw err;
-  }
+export async function fetchDomainAuthority(domain) {
+  console.log(`📈 Fetching DA/PA for: ${domain}`);
+
+  const data = await rapidGet({
+    host: HOSTS.daPa,
+    path: "/check",
+    params: { domain },
+    retries: 3,
+  });
+
+  console.log(`✅ DA/PA fetch complete for: ${domain}`);
+  return data; // raw – no assumptions about field names
 }
+
+/* -----------------------------------------------------------
+ * 3) EMAIL DISCOVERY
+ *    API: https://email-address-finder1.p.rapidapi.com/emailjob?website=
+ * --------------------------------------------------------- */
 
 /**
- * Batch search - perform multiple searches
- * 
- * @param {string[]} keywords - Array of keywords to search
- * @param {number} delayMs - Delay between requests in milliseconds (default: 1000)
+ * Discover emails & social links from a website.
+ *
+ * Endpoint (from your original setup):
+ *   GET https://email-address-finder1.p.rapidapi.com/emailjob?website=example.com
+ *
+ * Again, this returns raw JSON. Inspect & then map to your lead model.
  */
-export async function batchSearch(keywords, delayMs = 1000) {
-  const results = [];
-  
-  for (let i = 0; i < keywords.length; i++) {
-    const keyword = keywords[i];
-    console.log(`📊 Batch search progress: ${i + 1}/${keywords.length}`);
-    
-    try {
-      const result = await serpLookup(keyword);
-      results.push({
-        keyword,
-        success: true,
-        data: result
-      });
-    } catch (err) {
-      results.push({
-        keyword,
-        success: false,
-        error: err.message
-      });
-    }
-    
-    // Wait between requests to avoid rate limiting
-    if (i < keywords.length - 1) {
-      await wait(delayMs);
-    }
-  }
-  
-  return results;
+export async function findEmailsForDomain(domain) {
+  console.log(`📬 Discovering emails for: ${domain}`);
+
+  const data = await rapidGet({
+    host: HOSTS.emailFinder,
+    path: "/emailjob",
+    params: { website: domain },
+    retries: 3,
+  });
+
+  console.log(`✅ Email discovery complete for: ${domain}`);
+  return data; // raw
 }
 
-// Debug function to test API connectivity
+/* -----------------------------------------------------------
+ * 4) EMAIL VALIDATION
+ *    API: https://easy-email-validation.p.rapidapi.com/validate-v2?email=
+ * --------------------------------------------------------- */
+
+/**
+ * Validate a single email using Easy Email Validation.
+ *
+ * Endpoint (from your note):
+ *   GET https://easy-email-validation.p.rapidapi.com/validate-v2?email=foo@bar.com
+ *
+ * Returns raw JSON; you can later map whatever "score" / "valid" fields
+ * exist into the shape your filters expect.
+ */
+export async function validateEmailAddress(email) {
+  console.log(`✅ Validating email: ${email}`);
+
+  const data = await rapidGet({
+    host: HOSTS.emailValidator,
+    path: "/validate-v2",
+    params: { email },
+    retries: 3,
+  });
+
+  console.log(`✅ Email validation complete: ${email}`);
+  return data; // raw
+}
+
+/* -----------------------------------------------------------
+ * 5) Optional helpers for debugging & batch use
+ * --------------------------------------------------------- */
+
 export async function testApiConnection() {
-  console.log("Testing API connection...");
-  console.log("API Host:", API_HOST);
-  console.log("API Key:", API_KEY ? "Present (length: " + API_KEY.length + ")" : "Missing");
-  
-  if (!API_KEY) {
+  console.log("Testing RapidAPI connectivity…");
+  console.log(
+    "RAPIDAPI_KEY:",
+    RAPIDAPI_KEY ? `Present (length: ${RAPIDAPI_KEY.length})` : "MISSING"
+  );
+
+  if (!RAPIDAPI_KEY) {
     throw new Error("RAPIDAPI_KEY environment variable is not set");
   }
-  
-  // Try a simple test call
-  try {
-    const result = await serpLookup("test");
-    console.log("✅ API connection successful");
-    console.log("Response structure:", Object.keys(result));
-    if (result.organic_results) {
-      console.log(`Found ${result.organic_results.length} organic results`);
-    }
-    return result;
-  } catch (err) {
-    console.error("❌ API connection failed:", err.message);
-    if (err.response?.data) {
-      console.error("API Error Details:", err.response.data);
-    }
-    throw err;
-  }
+
+  const result = await serpLookup("test");
+  console.log("✅ SERP API connection OK, top-level keys:", Object.keys(result));
+  return result;
 }
 
-// Export utility function to parse search results
+/**
+ * Convenience: normalise basic SERP results into a simple array.
+ * (Used by other parts of the app – leaving this as-is.)
+ */
 export function parseSearchResults(apiResponse) {
-  // Handle different possible result structures
   const results = apiResponse?.organic_results || apiResponse?.results || [];
-  
-  if (!Array.isArray(results)) {
-    return [];
-  }
-  
-  return results.map((result, index) => ({
-    title: result.title,
-    link: result.link || result.url,
-    snippet: result.snippet || result.description,
-    displayLink: result.displayed_link || result.display_link,
-    position: result.position || index + 1
+  if (!Array.isArray(results)) return [];
+
+  return results.map((r, idx) => ({
+    title: r.title,
+    link: r.link || r.url,
+    snippet: r.snippet || r.description,
+    displayLink: r.displayed_link || r.display_link,
+    position: r.position || idx + 1,
   }));
 }
 
 export default {
   serpLookup,
   outreachScan,
-  advancedSearch,
-  batchSearch,
+  fetchDomainAuthority,
+  findEmailsForDomain,
+  validateEmailAddress,
   testApiConnection,
-  parseSearchResults
+  parseSearchResults,
 };

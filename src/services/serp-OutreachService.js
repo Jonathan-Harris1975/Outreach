@@ -1,31 +1,5 @@
 // src/services/serp-OutreachService.js
 
-// Guest-post detection
-const GUEST_POST_KEYWORDS = [
-  "write for us",
-  "guest post",
-  "submit article",
-  "contribute",
-  "submission",
-  "become a contributor",
-  "guest blogging",
-  "submit guest post",
-  "editorial guidelines"
-];
-
-function isLikelyGuestPostDomain(domainInfo) {
-  if (!domainInfo || !Array.isArray(domainInfo.results)) return false;
-  let text = "";
-  domainInfo.results.forEach(r => {
-    if (r.page) {
-      if (r.page.title) text += " " + r.page.title.toLowerCase();
-      if (r.page.url) text += " " + r.page.url.toLowerCase();
-    }
-  });
-  return GUEST_POST_KEYWORDS.some(k => text.includes(k));
-}
-
-
 import { serpLookup, enrichDomain } from "./outreachCore.js";
 
 const BAD_DOMAINS = [
@@ -40,6 +14,33 @@ const BAD_DOMAINS = [
   "x.com",
   "twitter.com",
 ];
+
+// Guest-post detection
+const GUEST_POST_KEYWORDS = [
+  "write for us",
+  "guest post",
+  "submit article",
+  "contribute",
+  "submission",
+  "become a contributor",
+  "guest blogging",
+  "submit guest post",
+  "editorial guidelines",
+];
+
+function isLikelyGuestPostDomain(domainInfo) {
+  if (!domainInfo || !Array.isArray(domainInfo.results)) return false;
+
+  let text = "";
+  domainInfo.results.forEach((r) => {
+    if (r.page) {
+      if (r.page.title) text += " " + r.page.title.toLowerCase();
+      if (r.page.url) text += " " + r.page.url.toLowerCase();
+    }
+  });
+
+  return GUEST_POST_KEYWORDS.some((k) => text.includes(k));
+}
 
 // ------------------------ DOMAIN EXTRACTION ------------------------
 
@@ -90,7 +91,7 @@ export function extractDomainPositions(serp) {
         map.set(host, pos);
       }
     } catch {
-      // ignore bad URLs
+      // ignore malformed URLs
     }
   });
 
@@ -177,7 +178,7 @@ export async function serpOutreach(keyword) {
       continue;
     }
 
-    // Guest post eligibility check
+    // Guest-post eligibility check
     const guestEligible = isLikelyGuestPostDomain(enriched.domainInfo);
     if (!guestEligible) {
       console.log(`⏭ Skipping ${domain} — no guest-post indicators.`);
@@ -210,7 +211,7 @@ export async function serpOutreach(keyword) {
       scoreBreakdown: score.breakdown,
     });
 
-    // be kind to RapidAPI
+    // Mild delay to avoid hammering everything at once
     await new Promise((res) => setTimeout(res, 500));
   }
 
@@ -222,4 +223,4 @@ export async function serpOutreach(keyword) {
     totalDomains: domainEntries.length,
     leads,
   };
-}
+    }

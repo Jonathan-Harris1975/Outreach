@@ -1,5 +1,31 @@
 // src/services/serp-OutreachService.js
 
+// Guest-post detection
+const GUEST_POST_KEYWORDS = [
+  "write for us",
+  "guest post",
+  "submit article",
+  "contribute",
+  "submission",
+  "become a contributor",
+  "guest blogging",
+  "submit guest post",
+  "editorial guidelines"
+];
+
+function isLikelyGuestPostDomain(domainInfo) {
+  if (!domainInfo || !Array.isArray(domainInfo.results)) return false;
+  let text = "";
+  domainInfo.results.forEach(r => {
+    if (r.page) {
+      if (r.page.title) text += " " + r.page.title.toLowerCase();
+      if (r.page.url) text += " " + r.page.url.toLowerCase();
+    }
+  });
+  return GUEST_POST_KEYWORDS.some(k => text.includes(k));
+}
+
+
 import { serpLookup, enrichDomain } from "./outreachCore.js";
 
 const BAD_DOMAINS = [
@@ -148,6 +174,13 @@ export async function serpOutreach(keyword) {
       enriched = await enrichDomain(domain);
     } catch (err) {
       console.log(`❌ enrichDomain failed for ${domain}: ${err.message}`);
+      continue;
+    }
+
+    // Guest post eligibility check
+    const guestEligible = isLikelyGuestPostDomain(enriched.domainInfo);
+    if (!guestEligible) {
+      console.log(`⏭ Skipping ${domain} — no guest-post indicators.`);
       continue;
     }
 

@@ -12,8 +12,9 @@ const HUNTER_BASE  = "https://api.hunter.io";
 const APOLLO_BASE  = "https://api.apollo.io";
 const SERP_HOST    = "google-search116.p.rapidapi.com";
 
-const HUNTER_DELAY_MS = Number(process.env.HUNTER_DELAY_MS || "500");
-const APOLLO_DELAY_MS = Number(process.env.APOLLO_DELAY_MS || "800");
+const HUNTER_DELAY_MS  = Number(process.env.HUNTER_DELAY_MS || "500");
+const APOLLO_DELAY_MS  = Number(process.env.APOLLO_DELAY_MS || "800");
+const URLSCAN_DELAY_MS = Number(process.env.URLSCAN_DELAY_MS || "2000");
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -30,14 +31,24 @@ export async function serpLookup(keyword) {
   return res.data;
 }
 
-/* ================= URLSCAN ================= */
+/* ================= URLSCAN (NON-FATAL) ================= */
 async function getUrlscan(domain) {
-  const res = await axios.get(`${URLSCAN_BASE}/search/`, {
-    params: { q: `domain:${domain}` },
-    headers: { "API-Key": KEY_URLSCAN },
-    timeout: 15000,
-  });
-  return res.data;
+  try {
+    const res = await axios.get(`${URLSCAN_BASE}/search/`, {
+      params: { q: `domain:${domain}` },
+      headers: { "API-Key": KEY_URLSCAN },
+      timeout: 15000,
+    });
+    await wait(URLSCAN_DELAY_MS);
+    return res.data;
+  } catch (err) {
+    if (err?.response?.status === 429) {
+      console.log(`⚠️ Urlscan rate-limited for ${domain}`);
+    } else {
+      console.log(`⚠️ Urlscan failed for ${domain}`);
+    }
+    return null;
+  }
 }
 
 /* ================= PROSPEO ================= */
@@ -84,7 +95,7 @@ async function getApollo(domain) {
 
 /* ================= HELPERS ================= */
 function shouldUseProspeo(domainInfo) {
-  if (!domainInfo?.results) return false;
+  if (!domainInfo || !domainInfo.results) return true;
   if (domainInfo.results.length >= 5) return true;
 
   const text = domainInfo.results
@@ -104,49 +115,54 @@ function isLowValue(email) {
 
 /* ================= ENRICH DOMAIN ================= */
 export async function enrichDomain(domain) {
-  const domainInfo = await getUrlscan(domain);
-  const emails = new Set();
+  try {
+    const domainInfo = KEY_URLSCAN ? await getUrlscan(domain) : null;
+    const emails = new Set();
 
-  // Prospeo (selective)
-  if (KEY_PROSPEO && shouldUseProspeo(domainInfo)) {
-    try {
-      const p = await getProspeo(domain);
-      p?.emails?.forEach(e => {
-        if (e?.email?.includes("@")) emails.add(e.email.toLowerCase());
-      });
-    } catch {}
-  }
+    // Prospeo
+    if (KEY_PROSPEO && shouldUseProspeo(domainInfo)) {
+      try {
+        const p = await getProspeo(domain);
+        p?.emails?.forEach(e => {
+          if (e?.email?.includes("@")) emails.add(e.email.toLowerCase());
+        });
+      } catch {}
+    }
 
-  // Hunter (primary)
-  let hunterOk = true;
-  if (KEY_HUNTER) {
-    try {
-      const h = await getHunter(domain);
-      h?.data?.emails?.forEach(e => {
-        const email = e.email || e.value;
-        if (email?.includes("@")) emails.add(email.toLowerCase());
-      });
-    } catch (err) {
-      if (isHunterQuotaError(err)) {
-        console.log("⚠️ Hunter quota exhausted — switching to Apollo");
-        hunterOk = false;
+    // Hunter
+    let hunterOk = true;
+    if (KEY_HUNTER) {
+      try {
+        const h = await getHunter(domain);
+        h?.data?.emails?.forEach(e => {
+          const email = e.email || e.value;
+          if (email?.includes("@")) emails.add(email.toLowerCase());
+        });
+      } catch (err) {
+        if (isHunterQuotaError(err)) {
+          console.log("⚠️ Hunter quota exhausted — switching to Apollo");
+          hunterOk = false;
+        }
       }
     }
-  }
 
-  // Apollo (fallback)
-  if ((!hunterOk || emails.size < 2) && KEY_APOLLO) {
-    try {
-      const a = await getApollo(domain);
-      a?.people?.forEach(p => {
-        if (p?.email?.includes("@")) emails.add(p.email.toLowerCase());
-      });
-    } catch {}
-  }
+    // Apollo fallback
+    if ((!hunterOk || emails.size < 2) && KEY_APOLLO) {
+      try {
+        const a = await getApollo(domain);
+        a?.people?.forEach(p => {
+          if (p?.email?.includes("@")) emails.add(p.email.toLowerCase());
+        });
+      } catch {}
+    }
 
-  return {
-    domain,
-    emails: [...emails].filter(e => !isLowValue(e)),
-    domainInfo,
-  };
-}
+    return {
+      domain,
+      emails: [...emails].filter(e => !isLowValue(e)),
+      domainInfo,
+    };
+  } catch (err) {
+    console.log(`❌ enrichDomain hard-failed for ${domain}: ${err.message}`);
+    return { domain, emails: [], domainInfo: null };
+  }
+            }

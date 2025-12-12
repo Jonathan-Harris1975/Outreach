@@ -4,13 +4,17 @@ const KEY_RAPIDAPI = process.env.RAPIDAPI_KEY;
 const KEY_URLSCAN  = process.env.API_URLSCAN_KEY;
 const KEY_PROSPEO  = process.env.API_PROSPEO_KEY;
 const KEY_HUNTER   = process.env.API_HUNTER_KEY;
+const KEY_APOLLO   = process.env.API_APOLLO_KEY;
 
 const URLSCAN_BASE = "https://urlscan.io/api/v1";
 const PROSPEO_BASE = "https://api.prospeo.io";
 const HUNTER_BASE  = "https://api.hunter.io";
+const APOLLO_BASE  = "https://api.apollo.io";
 const SERP_HOST    = "google-search116.p.rapidapi.com";
 
 const HUNTER_DELAY_MS = Number(process.env.HUNTER_DELAY_MS || "500");
+const APOLLO_DELAY_MS = Number(process.env.APOLLO_DELAY_MS || "800");
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ================= SERP ================= */
@@ -56,6 +60,28 @@ async function getHunter(domain) {
   return res.data;
 }
 
+function isHunterQuotaError(err) {
+  const s = err?.response?.status;
+  const msg = String(err?.response?.data?.message || "").toLowerCase();
+  return s === 401 || s === 402 || msg.includes("quota") || msg.includes("exceeded");
+}
+
+/* ================= APOLLO ================= */
+async function getApollo(domain) {
+  const res = await axios.post(
+    `${APOLLO_BASE}/v1/mixed_people/search`,
+    {
+      api_key: KEY_APOLLO,
+      q_organization_domains: [domain],
+      page: 1,
+      per_page: 10,
+    },
+    { timeout: 20000 }
+  );
+  await wait(APOLLO_DELAY_MS);
+  return res.data;
+}
+
 /* ================= HELPERS ================= */
 function shouldUseProspeo(domainInfo) {
   if (!domainInfo?.results) return false;
@@ -65,53 +91,62 @@ function shouldUseProspeo(domainInfo) {
     .map(r => `${r.page?.title || ""} ${r.page?.url || ""}`.toLowerCase())
     .join(" ");
 
-  return ["blog", "article", "news", "post"].some(k => text.includes(k));
+  return ["blog","article","news","post"].some(k => text.includes(k));
 }
 
 function isLowValue(email) {
   if (typeof email !== "string" || !email.includes("@")) return true;
-  const bad = [
+  return [
     "info","support","help","contact","admin",
     "sales","billing","noreply","no-reply","webmaster"
-  ];
-  return bad.includes(email.split("@")[0].toLowerCase());
+  ].includes(email.split("@")[0].toLowerCase());
 }
 
 /* ================= ENRICH DOMAIN ================= */
 export async function enrichDomain(domain) {
   const domainInfo = await getUrlscan(domain);
-  const collected = new Set();
+  const emails = new Set();
 
+  // Prospeo (selective)
   if (KEY_PROSPEO && shouldUseProspeo(domainInfo)) {
     try {
       const p = await getProspeo(domain);
-      if (Array.isArray(p?.emails)) {
-        p.emails.forEach(e => {
-          if (e?.email && e.email.includes("@")) {
-            collected.add(e.email.toLowerCase());
-          }
-        });
-      }
+      p?.emails?.forEach(e => {
+        if (e?.email?.includes("@")) emails.add(e.email.toLowerCase());
+      });
     } catch {}
   }
 
+  // Hunter (primary)
+  let hunterOk = true;
   if (KEY_HUNTER) {
     try {
       const h = await getHunter(domain);
-      if (Array.isArray(h?.data?.emails)) {
-        h.data.emails.forEach(e => {
-          const email = e.email || e.value;
-          if (email && email.includes("@")) {
-            collected.add(email.toLowerCase());
-          }
-        });
+      h?.data?.emails?.forEach(e => {
+        const email = e.email || e.value;
+        if (email?.includes("@")) emails.add(email.toLowerCase());
+      });
+    } catch (err) {
+      if (isHunterQuotaError(err)) {
+        console.log("⚠️ Hunter quota exhausted — switching to Apollo");
+        hunterOk = false;
       }
+    }
+  }
+
+  // Apollo (fallback)
+  if ((!hunterOk || emails.size < 2) && KEY_APOLLO) {
+    try {
+      const a = await getApollo(domain);
+      a?.people?.forEach(p => {
+        if (p?.email?.includes("@")) emails.add(p.email.toLowerCase());
+      });
     } catch {}
   }
 
   return {
     domain,
-    emails: [...collected].filter(e => !isLowValue(e)),
+    emails: [...emails].filter(e => !isLowValue(e)),
     domainInfo,
   };
 }

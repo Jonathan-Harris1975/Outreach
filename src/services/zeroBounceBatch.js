@@ -11,26 +11,21 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 export async function batchValidateEmails(emails = []) {
   const resultMap = new Map();
 
-  // Fail-safe: ZeroBounce disabled
-  if (!ZERO_API_KEY) {
-    console.log("⚠️ ZeroBounce disabled (API_ZERO_KEY missing)");
-    emails.forEach((e) => {
-      resultMap.set(e, { status: "unknown", sub_status: "not_checked" });
-    });
-    return resultMap;
-  }
-
-  const unique = [...new Set(emails)].filter(
+  const clean = [...new Set(emails)].filter(
     (e) => typeof e === "string" && e.includes("@")
   );
 
-  const chunks = [];
-  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
-    chunks.push(unique.slice(i, i + BATCH_SIZE));
+  // Fail-safe: ZeroBounce disabled
+  if (!ZERO_API_KEY) {
+    console.log("⚠️ ZeroBounce disabled (API_ZERO_KEY missing)");
+    clean.forEach((e) =>
+      resultMap.set(e, { status: "unknown", sub_status: "not_checked" })
+    );
+    return resultMap;
   }
 
-  for (let i = 0; i < chunks.length; i++) {
-    const batch = chunks[i];
+  for (let i = 0; i < clean.length; i += BATCH_SIZE) {
+    const batch = clean.slice(i, i + BATCH_SIZE);
 
     try {
       const res = await axios.post(
@@ -43,7 +38,6 @@ export async function batchValidateEmails(emails = []) {
       );
 
       const data = res.data?.email_batch || [];
-
       data.forEach((item) => {
         resultMap.set(item.email_address, {
           status: item.status,
@@ -52,22 +46,16 @@ export async function batchValidateEmails(emails = []) {
       });
 
       console.log(
-        `ZeroBounce batch ${i + 1}/${chunks.length} validated (${batch.length})`
+        `ZeroBounce batch validated (${batch.length} emails)`
       );
-    } catch (err) {
-      console.log(
-        `⚠️ ZeroBounce batch ${i + 1} failed – marking unknown`
+    } catch {
+      console.log("⚠️ ZeroBounce batch failed – marking unknown");
+      batch.forEach((email) =>
+        resultMap.set(email, { status: "unknown", sub_status: "batch_failed" })
       );
-
-      batch.forEach((email) => {
-        resultMap.set(email, {
-          status: "unknown",
-          sub_status: "batch_failed",
-        });
-      });
     }
 
-    if (i < chunks.length - 1) {
+    if (i + BATCH_SIZE < clean.length) {
       await wait(BATCH_DELAY_MS);
     }
   }

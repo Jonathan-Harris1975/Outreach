@@ -1,5 +1,3 @@
-// src/services/zeroBounceBatch.js
-
 import axios from "axios";
 
 const ZERO_API_KEY = process.env.API_ZERO_KEY;
@@ -11,52 +9,58 @@ const BATCH_DELAY_MS = 4000;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function batchValidateEmails(emails = []) {
-  if (!ZERO_API_KEY) throw new Error("API_ZERO_KEY missing");
+  const resultMap = new Map();
 
-  const results = new Map();
+  // Fail-safe: ZeroBounce disabled
+  if (!ZERO_API_KEY) {
+    console.log("⚠️ ZeroBounce disabled (API_ZERO_KEY missing)");
+    emails.forEach((e) => {
+      resultMap.set(e, { status: "unknown", sub_status: "not_checked" });
+    });
+    return resultMap;
+  }
+
+  const unique = [...new Set(emails)].filter(
+    (e) => typeof e === "string" && e.includes("@")
+  );
 
   const chunks = [];
-  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    chunks.push(emails.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    chunks.push(unique.slice(i, i + BATCH_SIZE));
   }
 
   for (let i = 0; i < chunks.length; i++) {
     const batch = chunks[i];
 
-    const payload = {
-      api_key: ZERO_API_KEY,
-      email_batch: batch.map((email) => ({
-        email_address: email,
-      })),
-    };
-
     try {
       const res = await axios.post(
         `${ZERO_BASE}/batch-validate`,
-        payload,
+        {
+          api_key: ZERO_API_KEY,
+          email_batch: batch.map((email) => ({ email_address: email })),
+        },
         { timeout: 30000 }
       );
 
       const data = res.data?.email_batch || [];
 
       data.forEach((item) => {
-        results.set(item.email_address, {
+        resultMap.set(item.email_address, {
           status: item.status,
           sub_status: item.sub_status,
         });
       });
 
       console.log(
-        `ZeroBounce batch ${i + 1}/${chunks.length} validated (${batch.length} emails)`
+        `ZeroBounce batch ${i + 1}/${chunks.length} validated (${batch.length})`
       );
-
     } catch (err) {
       console.log(
-        `ZeroBounce batch ${i + 1} failed – marking as unknown`
+        `⚠️ ZeroBounce batch ${i + 1} failed – marking unknown`
       );
 
       batch.forEach((email) => {
-        results.set(email, {
+        resultMap.set(email, {
           status: "unknown",
           sub_status: "batch_failed",
         });
@@ -68,5 +72,5 @@ export async function batchValidateEmails(emails = []) {
     }
   }
 
-  return results;
+  return resultMap;
 }
